@@ -108,8 +108,8 @@ public class PressActivity extends Activity {
                         if(reset) {
                             nowTime = System.currentTimeMillis();
                             limitTime = nowTime + TimeUnit.SECONDS.toMillis(1);
-                            //counter_ril_out=0;
-                            //counter_ril_in=0;
+                            counter_ril_out=0;
+                            counter_ril_in=0;
                             reset=false;
                         }
                         //stampare dentro il range o fuori dal range se un tot di rilevazioni superano sta cosa dove sto tot è modulare
@@ -120,7 +120,7 @@ public class PressActivity extends Activity {
                         pressView.setText(s);
                         //hzView.setText("sto analizzando");
 
-                        logicaRilevamento();
+                        logicaRilevamento_2();
                         break;
                 }
             }
@@ -181,6 +181,25 @@ public class PressActivity extends Activity {
         else if (counter_ril_in >= num_rilevazioni)
             hzView.setText("segnale normale");
 
+
+    }
+
+    private void logicaRilevamento_2(){
+        //logica rilevamento
+        //per prova voglio che per cambiare stato da modificato a normale servano 10 rilevazioni (dentro o fuori il range) consecutive
+        if (data > maxVal || data < minVal) {
+            counter_ril_out++;
+
+        } else {
+            counter_ril_in++;
+        }
+        if (System.currentTimeMillis() > limitTime) {
+            reset=true;
+            if (counter_ril_out >= counter_ril_in)
+                hzView.setText("segnale modificato");
+            else
+                hzView.setText("segnale normale");
+        }
 
     }
 
