@@ -26,17 +26,21 @@ import android.os.Bundle;
 import android.widget.Button;
 import android.widget.TextView;
 
+import java.sql.Time;
 import java.util.LinkedList;
+import java.util.concurrent.TimeUnit;
 
 
 public class PressActivity extends Activity {
 
     public enum Stato {CAMPIONAMENTO, RILEVAMENTO}
 
-    ;
+    //grafica
     private TextView pressView;
     private TextView hzView;
-    private Button button;
+    private TextView titleView;
+
+    //logica
     private int counter_camp = 0;
     private int counter_ril_out = 0;    //out of range quindi segnale modificato
     private int counter_ril_in = 0;     //in range quindi segnale normale
@@ -46,27 +50,27 @@ public class PressActivity extends Activity {
     private Stato stato = Stato.CAMPIONAMENTO;  //stato dell'app
     private float offset = 0.005f;   //studiarsi qualcosa per sceglierlo meglio sto valore magari si può ricavare direttamente dallo scostamento con la media
     private float pivot;    //media dei rilevamenti (basata sul num_campionamento)
-    private int num_capionamento = 300; //num di campionamenti per decidere il pivot, maxVal e minVal
+    private int num_capionamento = 150; //num di campionamenti per decidere il pivot, maxVal e minVal
     private int num_rilevazioni = 15;   //num necessario per decidere se si è dentro il range o fuori
+    private int num_ril_rumore = 4; //sono necessarie un tot di rilevazioni consecutive per azzerare il contatore
     private float data; //variabile che contiene il valore del sensore
+    private long nowTime;
+    private long limitTime;
+    private boolean reset=true;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.press_layout);
+        titleView = (TextView) findViewById(R.id.title_pressure_text);
         pressView = (TextView) findViewById(R.id.pressTxt);
         hzView = (TextView) findViewById(R.id.hz_text);
-        button = (Button) findViewById(R.id.button);
 
-
-        // Look for pressure sensor
         SensorManager snsMgr = (SensorManager) getSystemService(Service.SENSOR_SERVICE);
-
         Sensor pS = snsMgr.getDefaultSensor(Sensor.TYPE_PRESSURE);
+        snsMgr.registerListener(new SensorEventListener() { //vorrei usare l'interpolazione trigonometrica se riesco
 
-        //vorrei usare l'interpolazione trigonometrica se riesco
-        snsMgr.registerListener(new SensorEventListener() {
             @Override
             public void onSensorChanged(SensorEvent event) {
                 //magari cablarlo n una funzione che prende lo stato e basta
@@ -88,24 +92,26 @@ public class PressActivity extends Activity {
                             minVal = data;
                         if (counter_camp == num_capionamento) {
                             stato = Stato.RILEVAMENTO;
-                            float sum = 0f;
-                            for (float rilevazione : rilevazioni) {
-                                sum += rilevazione;
-                            }
-                            rilevazioni.clear();
-                            pivot = sum / num_capionamento;
 
-                            //forse non sarebbe male calcolare anche una media dei valori massimi e dei valori minimi per evitare che dei picchi atomici mi disturbino troppo il segnale
-                            maxVal = maxVal + offset;
-                            minVal = minVal + offset;
+                            //calcolaScostamento();
+                            calcolaScostamento_2();
+
+                            titleView.setText("pressure (mbar) \n pivot : " + pivot + "\n maxVal : " + maxVal + "\n minVal : " + minVal);
 
                             //potrei anche usare una sorta di euristica (o media pesata) per scegliere i limiti ad esempio far valore la media 60% e il valore del max e min un tot
                         }
-                        
+
                         break;
 
 
                     case RILEVAMENTO:
+                        if(reset) {
+                            nowTime = System.currentTimeMillis();
+                            limitTime = nowTime + TimeUnit.SECONDS.toMillis(1);
+                            //counter_ril_out=0;
+                            //counter_ril_in=0;
+                            reset=false;
+                        }
                         //stampare dentro il range o fuori dal range se un tot di rilevazioni superano sta cosa dove sto tot è modulare
                         //accuracy
 
@@ -114,24 +120,10 @@ public class PressActivity extends Activity {
                         pressView.setText(s);
                         //hzView.setText("sto analizzando");
 
-                        //logica rilevamento
-                        //per prova voglio che per cambiare stato da modificato a normale servano 10 rilevazioni (dentro o fuori il range) consecutive
-                        if (data > maxVal || data < minVal) {
-                            counter_ril_out++;
-                            counter_ril_in = 0;
-
-                        } else {
-                            counter_ril_in++;
-                            counter_ril_out = 0;
-                        }
-                        if (counter_ril_out >= num_rilevazioni)
-                            hzView.setText("segnale modificato");
-                        else if (counter_ril_in >= num_rilevazioni)
-                            hzView.setText("segnale normale");
+                        logicaRilevamento();
                         break;
                 }
             }
-
 
 
             @Override
@@ -142,8 +134,52 @@ public class PressActivity extends Activity {
 
     }
 
+
     //per pulizia del codice futuro
+    //seconda logica implementata
+    private void calcolaScostamento_2() {
+        float sum = 0f;
+        for (float rilevazione : rilevazioni) {
+            sum += rilevazione;
+        }
+        rilevazioni.clear();
+        pivot = sum / num_capionamento;
+        offset = (maxVal - minVal) / 2;
+        minVal = pivot - offset;
+        maxVal = pivot + offset;
+
+        //se rimane questa la logica potrei anche contare il numero di volte che si cambia il massimo ed il minimo e dare più peso ad un o ad un'altro
+
+    }
+
     private void calcolaScostamento() {
+        float sum = 0f;
+        for (float rilevazione : rilevazioni) {
+            sum += rilevazione;
+        }
+        rilevazioni.clear();
+        pivot = sum / num_capionamento;
+
+        minVal = minVal - offset;
+        maxVal = maxVal + offset;
+
+    }
+
+    private void logicaRilevamento(){
+        //logica rilevamento
+        //per prova voglio che per cambiare stato da modificato a normale servano 10 rilevazioni (dentro o fuori il range) consecutive
+        if (data > maxVal || data < minVal) {
+            counter_ril_out++;
+            counter_ril_in = 0;
+
+        } else {
+            counter_ril_in++;
+            counter_ril_out = 0;
+        }
+        if (counter_ril_out >= num_rilevazioni)
+            hzView.setText("segnale modificato");
+        else if (counter_ril_in >= num_rilevazioni)
+            hzView.setText("segnale normale");
 
 
     }
